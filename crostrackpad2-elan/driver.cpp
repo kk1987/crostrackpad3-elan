@@ -482,6 +482,20 @@ bool ProcessMove(csgesture_softc *sc, int abovethreshold, int iToUse[3]) {
 	return false;
 }
 
+int CalcScrollValue(int rawValue, int ticks) {
+	int actionThreshold = 3;
+	int invalidThreshold = 120;
+
+	int absValue = abs(rawValue);
+	int speed = absValue / max(ticks, 1);
+	int step = speed > 11 ? 3 : (speed > 7 ? 4 : (speed > 4 ? 6 : 7));
+	if (absValue > invalidThreshold || absValue < actionThreshold) {
+		return 0;
+	} else {
+		return (rawValue / absValue) * ((absValue > actionThreshold && absValue < 2 * step ? 0 : 1) + (absValue - actionThreshold) / step);
+	}
+}
+
 bool ProcessScroll(csgesture_softc *sc, int abovethreshold, int iToUse[3]) {
 	sc->scrollx = 0;
 	sc->scrolly = 0;
@@ -511,41 +525,16 @@ bool ProcessScroll(csgesture_softc *sc, int abovethreshold, int iToUse[3]) {
 
 		if ((abs(delta_y1) + abs(delta_y2)) > (abs(delta_x1) + abs(delta_x2))) {
 			int avgy = (delta_y1 + delta_y2) / 2;
-			sc->scrolly = avgy;
+			sc->scrolly = -avgy;
 		}
 		else {
 			int avgx = (delta_x1 + delta_x2) / 2;
-			sc->scrollx = avgx;
+			sc->scrollx = -avgx;
 		}
-		if (abs(sc->scrollx) > 100)
-			sc->scrollx = 0;
-		if (abs(sc->scrolly) > 100)
-			sc->scrolly = 0;
-		if (sc->scrolly > 8)
-			sc->scrolly = sc->scrolly / 8;
-		else if (sc->scrolly > 5)
-			sc->scrolly = 1;
-		else if (sc->scrolly < -8)
-			sc->scrolly = sc->scrolly / 8;
-		else if (sc->scrolly < -5)
-			sc->scrolly = -1;
-		else
-			sc->scrolly = 0;
 
-		if (sc->scrollx > 8) {
-			sc->scrollx = sc->scrollx / 8;
-			sc->scrollx = -sc->scrollx;
-		}
-		else if (sc->scrollx > 5)
-			sc->scrollx = -1;
-		else if (sc->scrollx < -8) {
-			sc->scrollx = sc->scrollx / 8;
-			sc->scrollx = -sc->scrollx;
-		}
-		else if (sc->scrollx < -5)
-			sc->scrollx = 1;
-		else
-			sc->scrollx = 0;
+		int ticks = (sc->tick[i1] + sc->tick[i2]) / 2;
+		sc->scrolly = CalcScrollValue(sc->scrolly, ticks);
+		sc->scrollx = CalcScrollValue(sc->scrollx, ticks);
 
 		int fngrcount = 0;
 		int totfingers = 0;
@@ -713,9 +702,6 @@ void ProcessGesture(PDEVICE_CONTEXT pDevice, csgesture_softc *sc) {
 	sc->dy = 0;
 
 #pragma mark process touch thresholds
-	int avgx[MAX_FINGERS];
-	int avgy[MAX_FINGERS];
-
 	int abovethreshold = 0;
 	int recentlyadded = 0;
 	int iToUse[3] = { -1,-1,-1 };
@@ -727,16 +713,17 @@ void ProcessGesture(PDEVICE_CONTEXT pDevice, csgesture_softc *sc) {
 			nfingers++;
 	}
 
+	int recentTicksThreshold = 20;
+	int speedThreshold = 2;
+
 	for (int i = 0;i < MAX_FINGERS;i++) {
-		if (sc->truetick[i] < 30 && sc->truetick[i] != 0)
+		if (sc->truetick[i] < recentTicksThreshold && sc->truetick[i] != 0)
 			recentlyadded++;
 		if (sc->tick[i] == 0)
 			continue;
 		if (sc->blacklistedids[i] == 1)
 			continue;
-		avgx[i] = sc->flextotalx[i] / sc->tick[i];
-		avgy[i] = sc->flextotaly[i] / sc->tick[i];
-		if (distancesq(avgx[i], avgy[i]) > 2) {
+		if (distancesq(sc->flextotalx[i], sc->flextotaly[i]) / (sc->tick[i] * sc->tick[i]) > speedThreshold) {
 			abovethreshold++;
 			iToUse[a] = i;
 			a++;
